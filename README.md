@@ -1,42 +1,38 @@
-# ClinOmics AI
-ClinOmics AI is an AI-powered clinical genomics tool that fetches mutation pathogenicity, drug interactions, and clinical trials to generate professional PDF reports.
+ # ClinOmics AI Pro
+
+**ClinOmics AI Pro** is a SaaS-ready bioinformatics platform for clinical genomics.  
+It analyzes gene mutations, finds drug matches, suggests clinical trials, and generates AI-driven PDF reports.
+
+---
 
 ## Features
-- **ClinVar Pathogenicity:** Analyze gene mutations.
-- **Drug Interactions (DGIdb):** Find drugs targeting specific genes.
-- **Clinical Trials:** Fetch current trial data from ClinicalTrials.gov.
-- **PDF Reports:** Generate professional downloadable reports.
+- **AI Mutation Prediction** (mock model now, real ML later).
+- **Drug Matching** using DGIdb API (with fallback data).
+- **Clinical Trials** via ClinicalTrials.gov API (with fallback).
+- **Free vs Pro Plans** (5 daily searches limit for Free).
+- **Professional PDF Reports** with charts and summaries.
+
+---
 
 ## Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/<your-username>/ClinOmics-AI.git
-   cd ClinOmics-AI
-   ```
-2. Create a virtual environment (Python 3.11 recommended):
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate  # On Windows
-   source .venv/bin/activate  # On Mac/Linux
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Run the app:
-   ```bash
-   streamlit run app.py
-   ```
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
 
-## Deployment on Streamlit Cloud
-1. Push this project to GitHub.
-2. Go to [Streamlit Cloud](https://share.streamlit.io/).
-3. Click **New App** and link your repository.
-4. Select `app.py` as the entry point.
-5. Deploy and share your public URL!
+---
 
-## Requirements
-See `requirements.txt`.
+## Deployment (Streamlit Cloud)
+1. Push to GitHub.
+2. Add `runtime.txt` (Python 3.11).
+3. Deploy via [Streamlit Cloud](https://share.streamlit.io/).
 
-## Author
-**ClinOmics AI** — Bioinformatics SaaS MVP by Syeda Rehmat.
+---
+
+## Business Model for $100k/month
+- **Pro Plan**: $49/month (2,000 users → $98k/month).
+- **Enterprise**: $500+/month for labs (batch analysis, API).
+- **Unique Value**: AI-driven variant interpretation + clinical trial matching.
+
+---
+**Author:** Syeda Rehmat | ClinOmics AI Pro SaaS MVP
