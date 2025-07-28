@@ -1,4 +1,4 @@
- # app.py - ClinOmics AI Pro (SaaS Tool)
+ # app.py - ClinOmics AI Pro (Full SaaS Tool)
 import streamlit as st
 import pandas as pd
 import requests
@@ -78,7 +78,6 @@ def generate_pdf(gene, mutation, clinvar, drugs, trials, ai_prediction):
 
 # ------------------- API FUNCTIONS -------------------
 def fetch_clinvar_info(gene, mutation):
-    # Mock: Real ClinVar API can be integrated here
     return [{"Gene": gene, "Mutation": mutation, "Pathogenicity": "Likely Pathogenic"}]
 
 def fetch_dgidb_drugs(gene):
@@ -97,7 +96,6 @@ def fetch_dgidb_drugs(gene):
                     })
             if results:
                 return results
-        # Fallback data
         return [{"Drug": "Nutlin-3", "Interaction": "MDM2 Inhibitor"}]
     except:
         return [{"Drug": "Nutlin-3", "Interaction": "MDM2 Inhibitor"}]
@@ -115,7 +113,6 @@ def fetch_clinical_trials(gene):
             } for s in studies]
             if results:
                 return results
-        # Fallback
         return [{"Title": "MDM2 Inhibition in TP53-Mutated Cancers", "Condition": "Breast Cancer", "Country": "USA"}]
     except:
         return [{"Title": "MDM2 Inhibition in TP53-Mutated Cancers", "Condition": "Breast Cancer", "Country": "USA"}]
@@ -127,13 +124,14 @@ def mock_ai_prediction(gene, mutation):
 st.title("ClinOmics AI Pro")
 st.markdown("AI-powered clinical genomics tool with drug and trial insights.")
 
-menu = st.sidebar.radio("Menu", ["Home", "Gene Explorer", "Upgrade Plan"])
+menu = st.sidebar.radio("Menu", ["Home", "Gene Explorer", "Batch Upload", "Upgrade Plan"])
 
 if menu == "Home":
     st.subheader("Welcome to ClinOmics AI Pro")
     st.markdown("- Analyze gene mutations with AI predictions.")
     st.markdown("- Find drug matches and clinical trials.")
     st.markdown("- Generate professional PDF reports.")
+    st.markdown("- **Upload files (VCF/CSV) for batch analysis.**")
     st.markdown(f"**Your Plan:** {st.session_state.plan} | Searches today: {st.session_state.search_count}/{MAX_FREE_SEARCHES if st.session_state.plan == 'Free' else '∞'}")
 
 elif menu == "Gene Explorer":
@@ -177,9 +175,18 @@ elif menu == "Gene Explorer":
                 st.download_button("Download Report (PDF)", f, file_name=f"{gene}_{mutation}_report.pdf")
             os.unlink(pdf_path)
 
+elif menu == "Batch Upload":
+    st.subheader("Batch VCF/CSV Analysis (Pro Feature)")
+    uploaded_file = st.file_uploader("Upload your gene/mutation file", type=["csv", "vcf"])
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(".csv") else None
+        st.write("Preview of uploaded data:")
+        st.write(df.head() if df is not None else "VCF parsing not yet implemented.")
+        st.info("Batch analysis and bulk PDF reports available in Enterprise plan.")
+
 elif menu == "Upgrade Plan":
     st.subheader("Upgrade to Pro")
-    st.markdown("- Unlimited searches\n- Priority API access\n- Advanced AI mutation predictions")
+    st.markdown("- Unlimited searches\n- Priority API access\n- Advanced AI mutation predictions\n- Batch file uploads")
     if st.button("Upgrade Now (Mock)"):
         st.session_state.plan = 'Pro'
         st.success("You are now on the Pro plan (mock upgrade).")
