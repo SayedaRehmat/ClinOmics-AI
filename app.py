@@ -1,4 +1,4 @@
- # app.py - ClinOmics AI Pro (SaaS Tool with Stripe Mock)
+ # app.py - ClinOmics AI Pro (SaaS Tool with Login & Free/Pro Plans)
 import streamlit as st
 import pandas as pd
 import requests
@@ -12,16 +12,38 @@ from datetime import datetime
 # ------------------- CONFIG -------------------
 st.set_page_config(page_title="ClinOmics AI Pro", layout="wide")
 
-# ------------------- SESSION STATE -------------------
-if 'search_count' not in st.session_state:
-    st.session_state.search_count = 0
-    st.session_state.last_reset = datetime.now().date()
-    st.session_state.plan = 'Free'
-if st.session_state.last_reset != datetime.now().date():
-    st.session_state.search_count = 0
-    st.session_state.last_reset = datetime.now().date()
+# ------------------- USER SYSTEM -------------------
+# Mock user database (replace with real DB later)
+USERS = {
+    "admin": {"password": "admin123", "plan": "Pro"},
+    "demo": {"password": "demo123", "plan": "Free"}
+}
 
+def login(username, password):
+    if username in USERS and USERS[username]["password"] == password:
+        st.session_state.username = username
+        st.session_state.plan = USERS[username]["plan"]
+        st.session_state.logged_in = True
+        if "search_count" not in st.session_state:
+            st.session_state.search_count = 0
+            st.session_state.last_reset = datetime.now().date()
+        return True
+    return False
+
+def logout():
+    for key in ["username", "logged_in", "plan", "search_count", "last_reset"]:
+        if key in st.session_state:
+            del st.session_state[key]
+
+# ------------------- PLAN LIMITS -------------------
 MAX_FREE_SEARCHES = 5
+
+def can_search():
+    if st.session_state.plan == "Pro":
+        return True
+    if st.session_state.search_count < MAX_FREE_SEARCHES:
+        return True
+    return False
 
 # ------------------- UTILS -------------------
 def plot_drug_chart(drugs):
@@ -120,14 +142,29 @@ def fetch_clinical_trials(gene):
 def mock_ai_prediction(gene, mutation):
     return "Pathogenic (AI-Predicted)" if gene in ["TP53", "BRCA1"] else "Uncertain Significance"
 
-# ------------------- UI -------------------
-st.title("ClinOmics AI Pro")
-st.markdown("AI-powered clinical genomics tool with drug and trial insights.")
+# ------------------- LOGIN PAGE -------------------
+if "logged_in" not in st.session_state or not st.session_state.get("logged_in"):
+    st.title("ClinOmics AI Pro - Login")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    if st.button("Login"):
+        if login(username, password):
+            st.success(f"Welcome {username}!")
+            st.experimental_rerun()
+        else:
+            st.error("Invalid username or password.")
+    st.stop()
 
-menu = st.sidebar.radio("Menu", ["Home", "Gene Explorer", "Batch Upload", "Upgrade Plan"])
+# ------------------- MAIN MENU -------------------
+menu = st.sidebar.radio("Menu", ["Home", "Gene Explorer", "Batch Upload", "Upgrade Plan", "Admin Panel", "Logout"])
 
-if menu == "Home":
-    st.subheader("Welcome to ClinOmics AI Pro")
+if menu == "Logout":
+    logout()
+    st.success("Logged out successfully.")
+    st.experimental_rerun()
+
+elif menu == "Home":
+    st.subheader(f"Welcome, {st.session_state.username}!")
     st.markdown("- Analyze gene mutations with AI predictions.")
     st.markdown("- Find drug matches and clinical trials.")
     st.markdown("- Generate professional PDF reports.")
@@ -135,7 +172,7 @@ if menu == "Home":
     st.markdown(f"**Your Plan:** {st.session_state.plan} | Searches today: {st.session_state.search_count}/{MAX_FREE_SEARCHES if st.session_state.plan == 'Free' else '∞'}")
 
 elif menu == "Gene Explorer":
-    if st.session_state.plan == 'Free' and st.session_state.search_count >= MAX_FREE_SEARCHES:
+    if not can_search():
         st.error("Daily limit reached. Upgrade to Pro for unlimited searches.")
     else:
         gene = st.text_input("Enter Gene Symbol (e.g., TP53)", "TP53").upper()
@@ -177,31 +214,33 @@ elif menu == "Gene Explorer":
 
 elif menu == "Batch Upload":
     st.subheader("Batch VCF/CSV Analysis (Pro Feature)")
-    uploaded_file = st.file_uploader("Upload your gene/mutation file", type=["csv", "vcf"])
-    if uploaded_file:
-        df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(".csv") else None
-        st.write("Preview of uploaded data:")
-        st.write(df.head() if df is not None else "VCF parsing not yet implemented.")
-        st.info("Batch analysis and bulk PDF reports available in Enterprise plan.")
+    if st.session_state.plan == "Free":
+        st.warning("Upgrade to Pro to use batch upload.")
+    else:
+        uploaded_file = st.file_uploader("Upload your gene/mutation file", type=["csv", "vcf"])
+        if uploaded_file:
+            df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(".csv") else None
+            st.write("Preview of uploaded data:")
+            st.write(df.head() if df is not None else "VCF parsing not yet implemented.")
 
 elif menu == "Upgrade Plan":
     st.subheader("Upgrade to Pro")
     st.markdown("""
     - **Unlimited Searches**
-    - **Priority API Access**
     - **Batch Uploads**
-    - **Advanced AI Predictions**
+    - **Priority Access**
     """)
-    st.markdown("---")
-    st.markdown("### Stripe Payment (Mock)")
-    st.markdown("Click below to simulate a Pro subscription payment.")
-    if st.button("Pay $49/month (Mock Checkout)"):
-        st.session_state.plan = 'Pro'
-        st.success("Payment successful! You are now on the Pro plan.")
+    st.info("For Pakistan users, contact admin (via email) to upgrade manually with EasyPaisa/Bank Transfer.")
 
-st.markdown("""
-<hr style='border: 1px solid #ddd;'> 
-<div style="text-align: center; color: gray;">
-    <b>ClinOmics AI Pro</b> — SaaS MVP for clinical genomics
-</div>
-""", unsafe_allow_html=True)
+elif menu == "Admin Panel":
+    if st.session_state.username != "admin":
+        st.error("Access denied.")
+    else:
+        st.subheader("Admin Panel")
+        user_list = pd.DataFrame([{ "Username": u, "Plan": USERS[u]["plan"] } for u in USERS])
+        st.table(user_list)
+
+        user_to_upgrade = st.selectbox("Select user to upgrade", list(USERS.keys()))
+        if st.button("Upgrade to Pro"):
+            USERS[user_to_upgrade]["plan"] = "Pro"
+            st.success(f"{user_to_upgrade} upgraded to Pro.")
