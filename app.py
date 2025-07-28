@@ -150,7 +150,7 @@ if "logged_in" not in st.session_state or not st.session_state.get("logged_in"):
     if st.button("Login"):
         if login(username, password):
             st.success(f"Welcome {username}!")
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Invalid username or password.")
     st.stop()
@@ -161,7 +161,7 @@ menu = st.sidebar.radio("Menu", ["Home", "Gene Explorer", "Batch Upload", "Upgra
 if menu == "Logout":
     logout()
     st.success("Logged out successfully.")
-    st.experimental_rerun()
+    st.rerun()
 
 elif menu == "Home":
     st.subheader(f"Welcome, {st.session_state.username}!")
