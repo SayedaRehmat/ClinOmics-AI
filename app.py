@@ -1,9 +1,10 @@
- # app.py - ClinOmics AI Pro (SaaS Tool with Login & Free/Pro Plans)
+ # app.py - ClinOmics AI Pro (Login + Registration + Free/Pro Plans)
 import streamlit as st
 import pandas as pd
 import requests
 import tempfile
 import os
+import json
 from fpdf import FPDF
 import matplotlib.pyplot as plt
 from io import BytesIO
@@ -11,18 +12,28 @@ from datetime import datetime
 
 # ------------------- CONFIG -------------------
 st.set_page_config(page_title="ClinOmics AI Pro", layout="wide")
+USERS_FILE = "users.json"
+MAX_FREE_SEARCHES = 5
 
-# ------------------- USER SYSTEM -------------------
-# Mock user database (replace with real DB later)
-USERS = {
-    "admin": {"password": "admin123", "plan": "Pro"},
-    "demo": {"password": "demo123", "plan": "Free"}
-}
+# ------------------- USER MANAGEMENT -------------------
+def load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "r") as f:
+            return json.load(f)
+    return {
+        "admin": {"password": "admin123", "plan": "Pro"},
+        "demo": {"password": "demo123", "plan": "Free"}
+    }
+
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=4)
 
 def login(username, password):
-    if username in USERS and USERS[username]["password"] == password:
+    users = load_users()
+    if username in users and users[username]["password"] == password:
         st.session_state.username = username
-        st.session_state.plan = USERS[username]["plan"]
+        st.session_state.plan = users[username]["plan"]
         st.session_state.logged_in = True
         if "search_count" not in st.session_state:
             st.session_state.search_count = 0
@@ -30,20 +41,23 @@ def login(username, password):
         return True
     return False
 
+def register(username, password):
+    users = load_users()
+    if username in users:
+        return False
+    users[username] = {"password": password, "plan": "Free"}
+    save_users(users)
+    return True
+
 def logout():
     for key in ["username", "logged_in", "plan", "search_count", "last_reset"]:
         if key in st.session_state:
             del st.session_state[key]
 
-# ------------------- PLAN LIMITS -------------------
-MAX_FREE_SEARCHES = 5
-
 def can_search():
     if st.session_state.plan == "Pro":
         return True
-    if st.session_state.search_count < MAX_FREE_SEARCHES:
-        return True
-    return False
+    return st.session_state.search_count < MAX_FREE_SEARCHES
 
 # ------------------- UTILS -------------------
 def plot_drug_chart(drugs):
@@ -142,17 +156,25 @@ def fetch_clinical_trials(gene):
 def mock_ai_prediction(gene, mutation):
     return "Pathogenic (AI-Predicted)" if gene in ["TP53", "BRCA1"] else "Uncertain Significance"
 
-# ------------------- LOGIN PAGE -------------------
+# ------------------- LOGIN OR REGISTER -------------------
 if "logged_in" not in st.session_state or not st.session_state.get("logged_in"):
-    st.title("ClinOmics AI Pro - Login")
+    st.title("ClinOmics AI Pro - Login/Register")
+    option = st.radio("Select Option", ["Login", "Register"])
+
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
-    if st.button("Login"):
+
+    if option == "Login" and st.button("Login"):
         if login(username, password):
             st.success(f"Welcome {username}!")
             st.rerun()
         else:
             st.error("Invalid username or password.")
+    elif option == "Register" and st.button("Register"):
+        if register(username, password):
+            st.success("Registration successful! Please login now.")
+        else:
+            st.error("Username already exists.")
     st.stop()
 
 # ------------------- MAIN MENU -------------------
@@ -165,11 +187,11 @@ if menu == "Logout":
 
 elif menu == "Home":
     st.subheader(f"Welcome, {st.session_state.username}!")
+    st.markdown(f"**Plan:** {st.session_state.plan} | Searches today: {st.session_state.search_count}/{MAX_FREE_SEARCHES if st.session_state.plan == 'Free' else '∞'}")
     st.markdown("- Analyze gene mutations with AI predictions.")
     st.markdown("- Find drug matches and clinical trials.")
     st.markdown("- Generate professional PDF reports.")
     st.markdown("- **Upload files (VCF/CSV) for batch analysis.**")
-    st.markdown(f"**Your Plan:** {st.session_state.plan} | Searches today: {st.session_state.search_count}/{MAX_FREE_SEARCHES if st.session_state.plan == 'Free' else '∞'}")
 
 elif menu == "Gene Explorer":
     if not can_search():
@@ -225,22 +247,19 @@ elif menu == "Batch Upload":
 
 elif menu == "Upgrade Plan":
     st.subheader("Upgrade to Pro")
-    st.markdown("""
-    - **Unlimited Searches**
-    - **Batch Uploads**
-    - **Priority Access**
-    """)
-    st.info("For Pakistan users, contact admin (via email) to upgrade manually with EasyPaisa/Bank Transfer.")
+    st.info("For Pakistan users, contact admin for manual upgrade via EasyPaisa/Bank Transfer.")
 
 elif menu == "Admin Panel":
     if st.session_state.username != "admin":
         st.error("Access denied.")
     else:
         st.subheader("Admin Panel")
-        user_list = pd.DataFrame([{ "Username": u, "Plan": USERS[u]["plan"] } for u in USERS])
+        users = load_users()
+        user_list = pd.DataFrame([{ "Username": u, "Plan": users[u]["plan"] } for u in users])
         st.table(user_list)
 
-        user_to_upgrade = st.selectbox("Select user to upgrade", list(USERS.keys()))
+        user_to_upgrade = st.selectbox("Select user to upgrade", list(users.keys()))
         if st.button("Upgrade to Pro"):
-            USERS[user_to_upgrade]["plan"] = "Pro"
+            users[user_to_upgrade]["plan"] = "Pro"
+            save_users(users)
             st.success(f"{user_to_upgrade} upgraded to Pro.")
