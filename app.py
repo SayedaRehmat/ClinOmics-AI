@@ -1,4 +1,4 @@
- # app.py - ClinOmics AI Pro (Full SaaS Tool)
+ # app.py - ClinOmics AI Pro (SaaS Tool with Stripe Mock)
 import streamlit as st
 import pandas as pd
 import requests
@@ -186,10 +186,18 @@ elif menu == "Batch Upload":
 
 elif menu == "Upgrade Plan":
     st.subheader("Upgrade to Pro")
-    st.markdown("- Unlimited searches\n- Priority API access\n- Advanced AI mutation predictions\n- Batch file uploads")
-    if st.button("Upgrade Now (Mock)"):
+    st.markdown("""
+    - **Unlimited Searches**
+    - **Priority API Access**
+    - **Batch Uploads**
+    - **Advanced AI Predictions**
+    """)
+    st.markdown("---")
+    st.markdown("### Stripe Payment (Mock)")
+    st.markdown("Click below to simulate a Pro subscription payment.")
+    if st.button("Pay $49/month (Mock Checkout)"):
         st.session_state.plan = 'Pro'
-        st.success("You are now on the Pro plan (mock upgrade).")
+        st.success("Payment successful! You are now on the Pro plan.")
 
 st.markdown("""
 <hr style='border: 1px solid #ddd;'> 
