@@ -1,0 +1,4 @@
+{
+    "admin": { "password": "admin123", "plan": "Pro" },
+    "demo": { "password": "demo123", "plan": "Free" }
+}
