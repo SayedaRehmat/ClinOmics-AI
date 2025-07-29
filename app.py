@@ -1,265 +1,162 @@
- # app.py - ClinOmics AI Pro (Login + Registration + Free/Pro Plans)
+ # app.py
 import streamlit as st
-import pandas as pd
 import requests
+import pandas as pd
+from fpdf import FPDF
 import tempfile
 import os
-import json
-from fpdf import FPDF
-import matplotlib.pyplot as plt
-from io import BytesIO
-from datetime import datetime
 
 # ------------------- CONFIG -------------------
-st.set_page_config(page_title="ClinOmics AI Pro", layout="wide")
-USERS_FILE = "users.json"
-MAX_FREE_SEARCHES = 5
+st.set_page_config(page_title="ClinOmics AI Pro", layout="centered")
+st.title("🧬 ClinOmics AI Pro: Gene Explorer & Drug Matcher")
+st.markdown("""
+**AI-powered gene mutation analysis, drug discovery, and clinical trial insights.**
+""")
 
-# ------------------- USER MANAGEMENT -------------------
-def load_users():
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, "r") as f:
-            return json.load(f)
-    return {
-        "admin": {"password": "admin123", "plan": "Pro"},
-        "demo": {"password": "demo123", "plan": "Free"}
-    }
+# ------------------- API ENDPOINTS -------------------
+CLINVAR_API = "https://clinicaltables.nlm.nih.gov/api/variants/v3/search"
+DGIDB_API = "https://dgidb.org/api/v2/interactions.json"
+TRIALS_API = "https://clinicaltrials.gov/api/query/study_fields"
 
-def save_users(users):
-    with open(USERS_FILE, "w") as f:
-        json.dump(users, f, indent=4)
+# ------------------- UTILITY -------------------
+def safe_text(text):
+    return str(text).encode('latin1', 'ignore').decode('latin1')
 
-def login(username, password):
-    users = load_users()
-    if username in users and users[username]["password"] == password:
-        st.session_state.username = username
-        st.session_state.plan = users[username]["plan"]
-        st.session_state.logged_in = True
-        if "search_count" not in st.session_state:
-            st.session_state.search_count = 0
-            st.session_state.last_reset = datetime.now().date()
-        return True
-    return False
+def fetch_clinvar_data(gene: str):
+    """Fetch ClinVar mutation data."""
+    try:
+        params = {"terms": gene, "maxList": 10}
+        r = requests.get(CLINVAR_API, params=params, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return [{"Variant": d[0], "ClinicalSignificance": d[1]} for d in data[3][:10]]
+    except Exception as e:
+        return [{"error": f"ClinVar API failed: {e}"}]
 
-def register(username, password):
-    users = load_users()
-    if username in users:
-        return False
-    users[username] = {"password": password, "plan": "Free"}
-    save_users(users)
-    return True
+def fetch_drug_data(gene: str):
+    """Fetch drug interaction data from DGIdb."""
+    try:
+        r = requests.get(DGIDB_API, params={"genes": gene}, timeout=10)
+        r.raise_for_status()
+        interactions = r.json().get("matchedTerms", [])
+        results = []
+        for term in interactions:
+            for interaction in term.get("interactions", []):
+                results.append({"Drug": interaction["drugName"], "Source": interaction["interactionSources"][0]["source"]})
+        return results if results else [{"error": "No drug data found."}]
+    except Exception as e:
+        return [{"error": f"DGIdb API failed: {e}"}]
 
-def logout():
-    for key in ["username", "logged_in", "plan", "search_count", "last_reset"]:
-        if key in st.session_state:
-            del st.session_state[key]
+def fetch_trials(gene: str):
+    """Fetch clinical trial data from ClinicalTrials.gov."""
+    try:
+        params = {
+            "expr": gene,
+            "fields": "NCTId,BriefTitle,Condition,LocationCountry",
+            "min_rnk": 1,
+            "max_rnk": 10,
+            "fmt": "json"
+        }
+        r = requests.get(TRIALS_API, params=params, timeout=10)
+        r.raise_for_status()
+        data = r.json().get("StudyFieldsResponse", {}).get("StudyFields", [])
+        return [{"Trial ID": d.get("NCTId", [""])[0], "Title": d.get("BriefTitle", [""])[0]} for d in data]
+    except Exception as e:
+        return [{"error": f"ClinicalTrials API failed: {e}"}]
 
-def can_search():
-    if st.session_state.plan == "Pro":
-        return True
-    return st.session_state.search_count < MAX_FREE_SEARCHES
+# ------------------- GENE INPUT -------------------
+gene = st.text_input("🔍 Enter Gene Symbol (e.g., TP53, BRCA1)").strip().upper()
 
-# ------------------- UTILS -------------------
-def plot_drug_chart(drugs):
-    df = pd.DataFrame(drugs)
-    if not df.empty and 'Drug' in df and 'Interaction' in df:
-        fig, ax = plt.subplots()
-        ax.bar(df['Drug'], range(1, len(df) + 1), color='skyblue')
-        ax.set_title("Drug Interactions")
-        plt.xticks(rotation=45)
-        buf = BytesIO()
-        plt.savefig(buf, format="png")
-        buf.seek(0)
-        return buf
-    return None
+expr, muts, drugs, trials = {}, [], [], []
 
-class PDFReport(FPDF):
-    def header(self):
-        self.set_font('Arial', 'B', 16)
-        self.cell(0, 10, 'ClinOmics AI Pro Report', ln=True, align='C')
-        self.ln(5)
-    def footer(self):
-        self.set_y(-15)
-        self.set_font('Arial', 'I', 8)
-        self.cell(0, 10, 'Generated by ClinOmics AI Pro', 0, 0, 'C')
+if gene:
+    st.info(f"Fetching data for **{gene}**...")
+    muts = fetch_clinvar_data(gene)
+    drugs = fetch_drug_data(gene)
+    trials = fetch_trials(gene)
 
-def generate_pdf(gene, mutation, clinvar, drugs, trials, ai_prediction):
-    pdf = PDFReport()
+# ------------------- DISPLAY RESULTS -------------------
+if gene:
+    # Mutations
+    if muts and "error" not in muts[0]:
+        st.subheader("🧬 Mutation Info")
+        st.table(pd.DataFrame(muts))
+    else:
+        st.warning(muts[0].get("error", "No mutation data found."))
+
+    # Drug Matches
+    if drugs and "error" not in drugs[0]:
+        st.subheader("💊 Drug Matches")
+        st.table(pd.DataFrame(drugs))
+    else:
+        st.warning(drugs[0].get("error", "No drug matches found."))
+
+    # Clinical Trials
+    if trials and "error" not in trials[0]:
+        st.subheader("🏥 Clinical Trials")
+        st.table(pd.DataFrame(trials))
+    else:
+        st.warning(trials[0].get("error", "No clinical trials found."))
+
+# ------------------- PDF REPORT -------------------
+def create_pdf_report(gene, muts, drugs, trials):
+    pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(0, 10, f"Gene: {gene} | Mutation: {mutation}", ln=True)
-    pdf.cell(0, 10, f"AI Prediction: {ai_prediction}", ln=True)
-    pdf.ln(5)
+    pdf.set_font("Arial", size=14)
+    pdf.cell(200, 10, txt=safe_text(f"ClinOmics Report: {gene}"), ln=True, align='C')
+    pdf.ln(10)
 
-    def add_section(title, data):
-        pdf.set_font("Arial", 'B', 12)
-        pdf.cell(0, 10, title, ln=True)
-        pdf.set_font("Arial", '', 11)
-        if not data:
-            pdf.cell(0, 8, "No data available", ln=True)
-        else:
-            for row in data:
-                line = ", ".join([f"{k}: {v}" for k, v in row.items() if v])
-                pdf.multi_cell(0, 8, line)
-                pdf.ln(1)
-        pdf.ln(4)
+    # Mutations
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="Mutation Info", ln=True)
+    pdf.set_font("Arial", '', 11)
+    for mut in muts:
+        for k, v in mut.items():
+            pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
+        pdf.ln(2)
 
-    add_section("ClinVar Pathogenicity", clinvar)
-    add_section("Drug Interactions (DGIdb)", drugs)
-    add_section("Clinical Trials", trials)
+    # Drugs
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="Drug Matches", ln=True)
+    pdf.set_font("Arial", '', 11)
+    for drug in drugs:
+        for k, v in drug.items():
+            pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
+        pdf.ln(2)
 
-    tmpfile = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    pdf.output(tmpfile.name)
-    return tmpfile.name
+    # Trials
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="Clinical Trials", ln=True)
+    pdf.set_font("Arial", '', 11)
+    for trial in trials:
+        for k, v in trial.items():
+            pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
+        pdf.ln(2)
 
-# ------------------- API FUNCTIONS -------------------
-def fetch_clinvar_info(gene, mutation):
-    return [{"Gene": gene, "Mutation": mutation, "Pathogenicity": "Likely Pathogenic"}]
+    # Footer
+    pdf.ln(10)
+    pdf.set_font("Arial", 'I', 10)
+    pdf.cell(200, 10, txt="Generated by ClinOmics AI Pro", ln=True, align='C')
+    return pdf
 
-def fetch_dgidb_drugs(gene):
-    try:
-        url = f"https://dgidb.org/api/v2/interactions/{gene}"
-        headers = {"User-Agent": "ClinOmicsAI/1.0"}
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code == 200 and resp.text:
-            data = resp.json()
-            results = []
-            for item in data.get("matchedTerms", []):
-                for inter in item.get("interactions", []):
-                    results.append({
-                        "Drug": inter.get("drugName"),
-                        "Interaction": ", ".join(inter.get("interactionTypes", []))
-                    })
-            if results:
-                return results
-        return [{"Drug": "Nutlin-3", "Interaction": "MDM2 Inhibitor"}]
-    except:
-        return [{"Drug": "Nutlin-3", "Interaction": "MDM2 Inhibitor"}]
+if gene and muts and "error" not in muts[0]:
+    if st.button("📥 Download PDF Report"):
+        pdf = create_pdf_report(gene, muts, drugs, trials)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmpfile:
+            pdf.output(tmpfile.name)
+            with open(tmpfile.name, "rb") as f:
+                st.download_button(
+                    label="⬇️ Download PDF Report",
+                    data=f,
+                    file_name=f"{gene}_ClinOmics_Report.pdf",
+                    mime="application/pdf"
+                )
+            os.unlink(tmpfile.name)
 
-def fetch_clinical_trials(gene):
-    try:
-        url = f"https://clinicaltrials.gov/api/query/study_fields?expr={gene}&fields=BriefTitle,Condition,LocationCountry&min_rnk=1&max_rnk=5&fmt=json"
-        resp = requests.get(url, timeout=10)
-        if resp.status_code == 200 and resp.text:
-            studies = resp.json().get("StudyFieldsResponse", {}).get("StudyFields", [])
-            results = [{
-                "Title": s.get("BriefTitle", [""])[0],
-                "Condition": ", ".join(s.get("Condition", [])),
-                "Country": ", ".join(s.get("LocationCountry", []))
-            } for s in studies]
-            if results:
-                return results
-        return [{"Title": "MDM2 Inhibition in TP53-Mutated Cancers", "Condition": "Breast Cancer", "Country": "USA"}]
-    except:
-        return [{"Title": "MDM2 Inhibition in TP53-Mutated Cancers", "Condition": "Breast Cancer", "Country": "USA"}]
-
-def mock_ai_prediction(gene, mutation):
-    return "Pathogenic (AI-Predicted)" if gene in ["TP53", "BRCA1"] else "Uncertain Significance"
-
-# ------------------- LOGIN OR REGISTER -------------------
-if "logged_in" not in st.session_state or not st.session_state.get("logged_in"):
-    st.title("ClinOmics AI Pro - Login/Register")
-    option = st.radio("Select Option", ["Login", "Register"])
-
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-
-    if option == "Login" and st.button("Login"):
-        if login(username, password):
-            st.success(f"Welcome {username}!")
-            st.rerun()
-        else:
-            st.error("Invalid username or password.")
-    elif option == "Register" and st.button("Register"):
-        if register(username, password):
-            st.success("Registration successful! Please login now.")
-        else:
-            st.error("Username already exists.")
-    st.stop()
-
-# ------------------- MAIN MENU -------------------
-menu = st.sidebar.radio("Menu", ["Home", "Gene Explorer", "Batch Upload", "Upgrade Plan", "Admin Panel", "Logout"])
-
-if menu == "Logout":
-    logout()
-    st.success("Logged out successfully.")
-    st.rerun()
-
-elif menu == "Home":
-    st.subheader(f"Welcome, {st.session_state.username}!")
-    st.markdown(f"**Plan:** {st.session_state.plan} | Searches today: {st.session_state.search_count}/{MAX_FREE_SEARCHES if st.session_state.plan == 'Free' else '∞'}")
-    st.markdown("- Analyze gene mutations with AI predictions.")
-    st.markdown("- Find drug matches and clinical trials.")
-    st.markdown("- Generate professional PDF reports.")
-    st.markdown("- **Upload files (VCF/CSV) for batch analysis.**")
-
-elif menu == "Gene Explorer":
-    if not can_search():
-        st.error("Daily limit reached. Upgrade to Pro for unlimited searches.")
-    else:
-        gene = st.text_input("Enter Gene Symbol (e.g., TP53)", "TP53").upper()
-        mutation = st.text_input("Enter Mutation (e.g., R175H)", "R175H").upper()
-
-        if st.button("Analyze Gene"):
-            st.session_state.search_count += 1
-            with st.spinner("Fetching data..."):
-                clinvar_data = fetch_clinvar_info(gene, mutation)
-                drug_data = fetch_dgidb_drugs(gene)
-                trial_data = fetch_clinical_trials(gene)
-                ai_prediction = mock_ai_prediction(gene, mutation)
-
-            st.subheader("AI Prediction")
-            st.info(f"AI Prediction for {gene} {mutation}: {ai_prediction}")
-
-            st.subheader("ClinVar Pathogenicity")
-            st.table(pd.DataFrame(clinvar_data))
-
-            st.subheader("Drug Matches (DGIdb)")
-            if drug_data:
-                st.table(pd.DataFrame(drug_data))
-                chart_buf = plot_drug_chart(drug_data)
-                if chart_buf:
-                    st.image(chart_buf)
-            else:
-                st.warning("No drug data found.")
-
-            st.subheader("Clinical Trials")
-            if trial_data:
-                st.table(pd.DataFrame(trial_data))
-            else:
-                st.warning("No clinical trials found.")
-
-            pdf_path = generate_pdf(gene, mutation, clinvar_data, drug_data, trial_data, ai_prediction)
-            with open(pdf_path, "rb") as f:
-                st.download_button("Download Report (PDF)", f, file_name=f"{gene}_{mutation}_report.pdf")
-            os.unlink(pdf_path)
-
-elif menu == "Batch Upload":
-    st.subheader("Batch VCF/CSV Analysis (Pro Feature)")
-    if st.session_state.plan == "Free":
-        st.warning("Upgrade to Pro to use batch upload.")
-    else:
-        uploaded_file = st.file_uploader("Upload your gene/mutation file", type=["csv", "vcf"])
-        if uploaded_file:
-            df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(".csv") else None
-            st.write("Preview of uploaded data:")
-            st.write(df.head() if df is not None else "VCF parsing not yet implemented.")
-
-elif menu == "Upgrade Plan":
-    st.subheader("Upgrade to Pro")
-    st.info("For Pakistan users, contact admin for manual upgrade via EasyPaisa/Bank Transfer.")
-
-elif menu == "Admin Panel":
-    if st.session_state.username != "admin":
-        st.error("Access denied.")
-    else:
-        st.subheader("Admin Panel")
-        users = load_users()
-        user_list = pd.DataFrame([{ "Username": u, "Plan": users[u]["plan"] } for u in users])
-        st.table(user_list)
-
-        user_to_upgrade = st.selectbox("Select user to upgrade", list(users.keys()))
-        if st.button("Upgrade to Pro"):
-            users[user_to_upgrade]["plan"] = "Pro"
-            save_users(users)
-            st.success(f"{user_to_upgrade} upgraded to Pro.")
+# ------------------- FOOTER -------------------
+st.markdown("""
+<hr style='border: 1px solid #ddd;'>
+<div style="text-align: center; color: gray;">
+    Created by <b>Syeda Rehmat</b> — Founder, <i>ClinOmics AI Pro</i>
+</div>
+""", unsafe_allow_html=True)
