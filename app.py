@@ -1,5 +1,4 @@
- # app.py
-import streamlit as st
+ import streamlit as st
 import requests
 import pandas as pd
 from fpdf import FPDF
@@ -8,20 +7,19 @@ import os
 
 # ------------------- CONFIG -------------------
 st.set_page_config(page_title="ClinOmics AI Pro", layout="centered")
-st.title("🧬 ClinOmics AI Pro: Gene Explorer & Drug Matcher")
-st.markdown("""
-**AI-powered gene mutation analysis, drug discovery, and clinical trial insights.**
-""")
+st.title("🧬 ClinOmics AI Pro: Gene, Drug & Clinical Trial Insights")
+st.markdown("**AI-powered mutation analysis, drug discovery, and clinical trial insights with real data.**")
 
 # ------------------- API ENDPOINTS -------------------
 CLINVAR_API = "https://clinicaltables.nlm.nih.gov/api/variants/v3/search"
-DGIDB_API = "https://dgidb.org/api/v2/interactions.json"
+OPENTARGETS_API = "https://platform-api.opentargets.io/v3/platform/public/association/filter"
 TRIALS_API = "https://clinicaltrials.gov/api/query/study_fields"
 
-# ------------------- UTILITY -------------------
+# ------------------- UTILITIES -------------------
 def safe_text(text):
     return str(text).encode('latin1', 'ignore').decode('latin1')
 
+# ------------------- DATA FETCH FUNCTIONS -------------------
 def fetch_clinvar_data(gene: str):
     """Fetch ClinVar mutation data."""
     try:
@@ -29,45 +27,64 @@ def fetch_clinvar_data(gene: str):
         r = requests.get(CLINVAR_API, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
-        return [{"Variant": d[0], "ClinicalSignificance": d[1]} for d in data[3][:10]]
+        variants = data[3] if len(data) > 3 else []
+        if not variants:
+            return [{"error": "No ClinVar data found."}]
+        return [{"VariantID": v[0], "Description": v[1]} for v in variants]
     except Exception as e:
         return [{"error": f"ClinVar API failed: {e}"}]
 
 def fetch_drug_data(gene: str):
-    """Fetch drug interaction data from DGIdb."""
+    """Fetch drug-gene associations from Open Targets."""
     try:
-        r = requests.get(DGIDB_API, params={"genes": gene}, timeout=10)
+        params = {"target": gene, "size": 10}
+        r = requests.get(OPENTARGETS_API, params=params, timeout=10)
         r.raise_for_status()
-        interactions = r.json().get("matchedTerms", [])
+        data = r.json()
+        associations = data.get("data", [])
+        if not associations:
+            return [{"error": "No drug data found."}]
         results = []
-        for term in interactions:
-            for interaction in term.get("interactions", []):
-                results.append({"Drug": interaction["drugName"], "Source": interaction["interactionSources"][0]["source"]})
-        return results if results else [{"error": "No drug data found."}]
+        for assoc in associations:
+            drug = assoc.get("drug", "N/A")
+            disease = assoc.get("disease", "N/A")
+            score = assoc.get("score", "N/A")
+            results.append({"Drug": drug, "Disease": disease, "Score": score})
+        return results
     except Exception as e:
-        return [{"error": f"DGIdb API failed: {e}"}]
+        return [{"error": f"Open Targets API failed: {e}"}]
 
 def fetch_trials(gene: str):
-    """Fetch clinical trial data from ClinicalTrials.gov."""
+    """Fetch clinical trials from ClinicalTrials.gov."""
     try:
         params = {
             "expr": gene,
             "fields": "NCTId,BriefTitle,Condition,LocationCountry",
             "min_rnk": 1,
             "max_rnk": 10,
-            "fmt": "json"
+            "fmt": "JSON"
         }
         r = requests.get(TRIALS_API, params=params, timeout=10)
         r.raise_for_status()
-        data = r.json().get("StudyFieldsResponse", {}).get("StudyFields", [])
-        return [{"Trial ID": d.get("NCTId", [""])[0], "Title": d.get("BriefTitle", [""])[0]} for d in data]
+        data = r.json()
+        trials = data.get("StudyFieldsResponse", {}).get("StudyFields", [])
+        if not trials:
+            return [{"error": "No clinical trials found."}]
+        return [
+            {
+                "Trial ID": t.get("NCTId", ["N/A"])[0],
+                "Title": t.get("BriefTitle", ["N/A"])[0],
+                "Country": ", ".join(t.get("LocationCountry", ["N/A"]))
+            }
+            for t in trials
+        ]
     except Exception as e:
         return [{"error": f"ClinicalTrials API failed: {e}"}]
 
 # ------------------- GENE INPUT -------------------
 gene = st.text_input("🔍 Enter Gene Symbol (e.g., TP53, BRCA1)").strip().upper()
 
-expr, muts, drugs, trials = {}, [], [], []
+muts, drugs, trials = [], [], []
 
 if gene:
     st.info(f"Fetching data for **{gene}**...")
@@ -77,23 +94,20 @@ if gene:
 
 # ------------------- DISPLAY RESULTS -------------------
 if gene:
-    # Mutations
     if muts and "error" not in muts[0]:
-        st.subheader("🧬 Mutation Info")
+        st.subheader("🧬 Mutation Info (ClinVar)")
         st.table(pd.DataFrame(muts))
     else:
         st.warning(muts[0].get("error", "No mutation data found."))
 
-    # Drug Matches
     if drugs and "error" not in drugs[0]:
-        st.subheader("💊 Drug Matches")
+        st.subheader("💊 Drug Matches (Open Targets)")
         st.table(pd.DataFrame(drugs))
     else:
         st.warning(drugs[0].get("error", "No drug matches found."))
 
-    # Clinical Trials
     if trials and "error" not in trials[0]:
-        st.subheader("🏥 Clinical Trials")
+        st.subheader("🏥 Clinical Trials (ClinicalTrials.gov)")
         st.table(pd.DataFrame(trials))
     else:
         st.warning(trials[0].get("error", "No clinical trials found."))
@@ -106,25 +120,22 @@ def create_pdf_report(gene, muts, drugs, trials):
     pdf.cell(200, 10, txt=safe_text(f"ClinOmics Report: {gene}"), ln=True, align='C')
     pdf.ln(10)
 
-    # Mutations
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="Mutation Info", ln=True)
+    pdf.cell(200, 10, txt="Mutation Info (ClinVar)", ln=True)
     pdf.set_font("Arial", '', 11)
     for mut in muts:
         for k, v in mut.items():
             pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
         pdf.ln(2)
 
-    # Drugs
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="Drug Matches", ln=True)
+    pdf.cell(200, 10, txt="Drug Matches (Open Targets)", ln=True)
     pdf.set_font("Arial", '', 11)
     for drug in drugs:
         for k, v in drug.items():
             pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
         pdf.ln(2)
 
-    # Trials
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(200, 10, txt="Clinical Trials", ln=True)
     pdf.set_font("Arial", '', 11)
@@ -133,7 +144,6 @@ def create_pdf_report(gene, muts, drugs, trials):
             pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
         pdf.ln(2)
 
-    # Footer
     pdf.ln(10)
     pdf.set_font("Arial", 'I', 10)
     pdf.cell(200, 10, txt="Generated by ClinOmics AI Pro", ln=True, align='C')
