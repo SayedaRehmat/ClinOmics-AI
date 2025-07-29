@@ -58,7 +58,6 @@ streamlit run app.py
 ---
 
 ### **SECTION 6: Usage**
-```markdown
 ## 🧪 Usage
 1. **Login/Register:**  
    - Create a free account or log in with demo credentials.
