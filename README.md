@@ -48,14 +48,12 @@ Our mission is simple:
 - **Libraries:** Pandas, Matplotlib, Requests, FPDF  
 - **Data Sources:** ClinVar, DGIdb, ClinicalTrials.gov  
 - **User Management:** JSON-based authentication system  
-## 📦 Installation
+ ## 📦 Installation
 ```bash
 git clone https://github.com/SayedaRehmat/ClinOmics_AI_Pro.git
 cd ClinOmics_AI_Pro
 pip install -r requirements.txt
 streamlit run app.py
-
----
 
 ### **SECTION 6: Usage**
 ## 🧪 Usage
