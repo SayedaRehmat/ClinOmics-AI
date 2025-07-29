@@ -13,6 +13,8 @@ Our mission is simple:
 
 ---
 
+## 🌐 Live App
+[**Launch ClinOmics AI Pro**](https://clinomics-ai-7pwnmg46tw2sqeezvajcxz.streamlit.app/)
 ## ✨ Features
 - **Gene & Mutation Explorer**  
   - Search genes (e.g., TP53, BRCA1).
@@ -30,9 +32,6 @@ Our mission is simple:
   - **Pro:** Unlimited searches + batch uploads.
 - **Batch CSV/VCF Uploads** (Pro feature).
 - **Admin Panel** for upgrading users.
-
----
-
 ## 💳 Pricing
 | Plan         | Features                                   | Price        |
 |--------------|--------------------------------------------|--------------|
@@ -43,76 +42,51 @@ Our mission is simple:
 **Payment Options for Pakistan:**  
 - **EasyPaisa**, **JazzCash**, or **Bank Transfer** (manual upgrade).  
 - **Payoneer** for international payments.
-
----
-
 ## 🛠 Technology Stack
 - **Frontend:** Streamlit  
 - **Backend:** Python (APIs via FastAPI if required)  
 - **Libraries:** Pandas, Matplotlib, Requests, FPDF  
 - **Data Sources:** ClinVar, DGIdb, ClinicalTrials.gov  
 - **User Management:** JSON-based authentication system  
-
----
-
 ## 📦 Installation
 ```bash
 git clone https://github.com/SayedaRehmat/ClinOmics_AI_Pro.git
 cd ClinOmics_AI_Pro
 pip install -r requirements.txt
-https://clinomics-ai-7pwnmg46tw2sqeezvajcxz.streamlit.app/
-Default Login Credentials:
+streamlit run app.py
 
-Admin: admin / admin123
+---
 
-Demo: demo / demo123
+### **SECTION 6: Usage**
+```markdown
+## 🧪 Usage
+1. **Login/Register:**  
+   - Create a free account or log in with demo credentials.
+2. **Search for a Gene:**  
+   - Enter a gene symbol (e.g., `TP53`) and a mutation (e.g., `R175H`).
+3. **View Insights:**  
+   - Check AI predictions, drug interactions, and trial matches.
+4. **Download PDF Reports:**  
+   - Generate and download a professional report.
+## 🌟 Business Plan to $100k/Month
+**Target Audience:**  
+- Oncology research labs, genetic testing companies, and hospitals.
 
-🧪 Usage
-Login/Register:
+**Revenue Model:**  
+- **2,000 Pro users @ $49/month = $98,000/month.**  
+- **Enterprise labs = Extra $500–$1000/month per client.**
 
-Create a free account or log in with demo credentials.
+**Growth Strategy:**  
+- Offer free trials to gain traction.  
+- Partner with universities & hospitals.  
+- Run outreach campaigns for labs needing precision genomic tools.
+## 📧 Contact
+- **Founder:** Syeda Rehmat  
+- **Email:** bc190408541@vu.edu.pk  
+- **Location:** Pakistan  
 
-Search for a Gene:
+---
 
-Enter a gene symbol (e.g., TP53) and a mutation (e.g., R175H).
-
-View Insights:
-
-Check AI predictions, drug interactions, and trial matches.
-
-Download PDF Reports:
-
-Generate and download a professional report.
-
-🌟 Business Plan to $100k/Month
-Target Audience:
-
-Oncology research labs, genetic testing companies, and hospitals.
-
-Revenue Model:
-
-2,000 Pro users @ $49/month = $98,000/month.
-
-Enterprise labs = Extra $500–$1000/month per client.
-
-Growth Strategy:
-
-Offer free trials to gain traction.
-
-Partner with universities & hospitals.
-
-Run outreach campaigns for labs needing precision genomic tools.
-
-📧 Contact
-Founder: Syeda Rehmat
-
-Email:  bc190408541@vu.edu.pk
-
-Location: Pakistan
-
-📜 License
-This project is licensed for personal and research use.
+## 📜 License
+This project is licensed for personal and research use.  
 For commercial licensing, please contact the owner.
-
-
-
