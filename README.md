@@ -49,7 +49,6 @@ Our mission is simple:
 - **Data Sources:** ClinVar, DGIdb, ClinicalTrials.gov  
 - **User Management:** JSON-based authentication system  
  ## 📦 Installation
-```bash
 git clone https://github.com/SayedaRehmat/ClinOmics_AI_Pro.git
 cd ClinOmics_AI_Pro
 pip install -r requirements.txt
