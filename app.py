@@ -1,140 +1,94 @@
  # app.py
+
 import streamlit as st
 import requests
-import json
 import pandas as pd
 from fpdf import FPDF
+import tempfile
+import os
 
-st.set_page_config(page_title="ClinOmics AI Pro", layout="wide")
-st.title("ClinOmics AI Pro")
-st.markdown("AI-powered gene mutation analysis, drug discovery, and clinical trial insights.")
+BASE_API = "http://localhost:10000"
 
-def fetch_expression(gene):
-    try:
-        res = requests.get(f"https://autobiox-api.onrender.com/expression/{gene}", timeout=10)
-        res.raise_for_status()
-        return res.json()
-    except Exception as e:
-        return {"error": str(e)}
+st.set_page_config(page_title="ClinOmics AI Pro", layout="centered")
+st.title("🧬 ClinOmics AI Pro")
 
-def fetch_mutation(gene):
-    try:
-        res = requests.get(f"https://autobiox-api.onrender.com/mutation/{gene}", timeout=10)
-        res.raise_for_status()
-        return res.json()
-    except Exception as e:
-        return {"error": str(e)}
+st.markdown("### AI-powered mutation analysis, drug matching, and trial insights")
 
-def fetch_trials_v2(gene):
-    try:
-        res = requests.get("https://clinicaltrials.gov/api/v2/studies", params={
-          "query.cond": "cancer",
-          "query.term": gene,
-          "fields": "NCTId,BriefTitle,Condition,LocationCountry",
-          "pageSize": 5,
-          "format": "json"
-        }, timeout=10)
-        res.raise_for_status()
-        data = res.json()
-        return [
-            {"Trial ID": s["protocolSection"]["identificationModule"]["nctId"],
-             "Title": s["protocolSection"]["identificationModule"].get("officialTitle", "")}
-            for s in data.get("studies", [])
-        ]
-    except Exception as e:
-        return [{"error": f"ClinicalTrials v2 API failed: {e}"}]
+gene = st.text_input("Enter Gene Symbol (e.g., TP53, BRCA1)").strip().upper()
 
-def fetch_drug_graphql(gene):
-    query = '''
-    {
-      matchedTerms(genes:["%s"]) {
-        geneName
-        interactions {
-          drugName
-          interactionTypes
-          sources { source }
-        }
-      }
-    }''' % gene
-    try:
-        r = requests.post("https://dgidb.org/api/graphql", json={"query": query}, timeout=10)
-        r.raise_for_status()
-        result = r.json()
-        interactions = result.get("data", {}).get("matchedTerms", [])[0].get("interactions", [])
-        return interactions if interactions else [{"note": "No drug matches found."}]
-    except Exception as e:
-        return [{"error": f"DGIdb GraphQL failed: {e}"}]
+def safe_text(text):
+    return str(text).encode('latin1', 'ignore').decode('latin1')
 
-def generate_pdf(gene, expression, mutation, drugs, trials):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(200, 10, f"Gene Report: {gene}", ln=True, align="C")
+if gene:
+    # 1. Fetch Expression
+    expr = requests.get(f"{BASE_API}/expression/{gene}").json()
+    # 2. Fetch Mutation
+    muts = requests.get(f"{BASE_API}/mutation/{gene}").json()
+    # 3. Fetch Drugs
+    drugs = requests.get(f"{BASE_API}/drugs/{gene}").json()
+    # 4. Fetch Trials
+    trials = requests.get(f"{BASE_API}/trials/{gene}").json()
 
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(200, 10, "\nGene Expression", ln=True)
-    pdf.set_font("Arial", size=10)
-    for k, v in expression.items():
-        pdf.cell(200, 8, f"{k}: {v}", ln=True)
-
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(200, 10, "\nMutations", ln=True)
-    pdf.set_font("Arial", size=10)
-    for row in mutation:
-        line = ', '.join(f"{k}: {v}" for k, v in row.items())
-        pdf.multi_cell(200, 8, line)
-
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(200, 10, "\nDrug Matches", ln=True)
-    pdf.set_font("Arial", size=10)
-    for drug in drugs:
-        line = ', '.join(f"{k}: {v}" for k, v in drug.items())
-        pdf.multi_cell(200, 8, line)
-
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(200, 10, "\nClinical Trials", ln=True)
-    pdf.set_font("Arial", size=10)
-    for trial in trials:
-        line = ', '.join(f"{k}: {v}" for k, v in trial.items())
-        pdf.multi_cell(200, 8, line)
-
-    filename = f"{gene}_report.pdf"
-    pdf.output(filename)
-    return filename
-
-# UI
-with st.form("search_form"):
-    gene_input = st.text_input("Enter Gene Symbol (e.g. TP53):")
-    submitted = st.form_submit_button("Search")
-
-if submitted and gene_input:
-    gene = gene_input.strip().upper()
-    st.info(f"Searching for gene: {gene}")
-
-    expr = fetch_expression(gene)
-    mut = fetch_mutation(gene)
-    drug = fetch_drug_graphql(gene)
-    trials = fetch_trials_v2(gene)
-
-    st.subheader("Gene Expression")
-    if "error" in expr:
-        st.warning(expr["error"])
+    # --- Show Expression
+    if "expression" in expr and isinstance(expr["expression"], list):
+        st.subheader("📊 Gene Expression")
+        df_expr = pd.DataFrame(expr["expression"])
+        st.dataframe(df_expr)
     else:
-        st.json(expr["expression"])
+        st.error(expr.get("error", "No expression data."))
 
-    st.subheader("Mutations")
-    if mut and isinstance(mut, list):
-        st.write(pd.DataFrame(mut))
+    # --- Show Mutations
+    if "mutations" in muts:
+        st.subheader("🧬 Mutations")
+        df_muts = pd.DataFrame(muts["mutations"])
+        st.dataframe(df_muts)
     else:
-        st.warning("No mutation data found.")
+        st.error(muts.get("error", "No mutation data."))
 
-    st.subheader("Drug Matches")
-    st.write(drug)
+    # --- Show Drug Matches
+    if "drugs" in drugs:
+        st.subheader("💊 Drug Matches")
+        df_drugs = pd.DataFrame(drugs["drugs"])
+        st.dataframe(df_drugs)
+    else:
+        st.error(drugs.get("error", "No drug data."))
 
-    st.subheader("Clinical Trials")
-    st.write(pd.DataFrame(trials))
+    # --- Show Clinical Trials
+    if "trials" in trials:
+        st.subheader("🏥 Clinical Trials")
+        df_trials = pd.DataFrame(trials["trials"])
+        st.dataframe(df_trials)
+    else:
+        st.error(trials.get("error", "No clinical trial data."))
 
-    if st.button("Download PDF Report"):
-        pdf_path = generate_pdf(gene, expr["expression"], mut, drug, trials)
-        with open(pdf_path, "rb") as f:
-            st.download_button("Download Report", f, file_name=pdf_path)
+    # --- PDF Report
+    if st.button("📥 Download Report as PDF"):
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+        pdf.cell(200, 10, txt=f"ClinOmics Report: {gene}", ln=True, align="C")
+
+        def add_section(title, df):
+            pdf.set_font("Arial", 'B', 12)
+            pdf.cell(200, 10, txt=safe_text(title), ln=True)
+            pdf.set_font("Arial", '', 10)
+            for idx, row in df.iterrows():
+                row_data = ', '.join(f"{col}: {safe_text(str(val))}" for col, val in row.items())
+                pdf.multi_cell(0, 8, txt=row_data)
+            pdf.ln(5)
+
+        if "expression" in expr and isinstance(expr["expression"], list):
+            add_section("Expression Data", pd.DataFrame(expr["expression"]))
+        if "mutations" in muts:
+            add_section("Mutations", pd.DataFrame(muts["mutations"]))
+        if "drugs" in drugs:
+            add_section("Drug Matches", pd.DataFrame(drugs["drugs"]))
+        if "trials" in trials:
+            add_section("Clinical Trials", pd.DataFrame(trials["trials"]))
+
+        # Save + download
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmpfile:
+            pdf.output(tmpfile.name)
+            with open(tmpfile.name, "rb") as f:
+                st.download_button("⬇️ Download PDF", data=f, file_name=f"{gene}_ClinOmics_Report.pdf", mime="application/pdf")
+            os.unlink(tmpfile.name)
