@@ -19,7 +19,7 @@ def safe_text(text):
 # ✅ 1. CLINVAR
 def fetch_clinvar_data(gene: str):
     try:
-        url = "https://clinicaltables.nlm.nih.gov/api/variants/v3/search"
+        url = "https://clinicaltrials.gov/api/v2"
         params = {"terms": gene, "maxList": 10}
         r = requests.get(url, params=params, timeout=10)
         r.raise_for_status()
