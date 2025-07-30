@@ -10,18 +10,20 @@ st.set_page_config(page_title="ClinOmics AI Pro", layout="centered")
 st.title("🧬 ClinOmics AI Pro: Gene, Drug & Clinical Trial Insights")
 st.markdown("**AI-powered mutation analysis, drug discovery, and clinical trial insights with trusted, open data sources.**")
 
+# ------------------- API ENDPOINTS -------------------
+CLINVAR_API = "https://clinicaltables.nlm.nih.gov/api/variants/v3/search"
+DGIDB_API = "https://dgidb.org/api/v2/interactions.json"
+TRIALS_API = "https://clinicaltrials.gov/api/v2"
+
 # ------------------- UTILITIES -------------------
 def safe_text(text):
     return str(text).encode('latin1', 'ignore').decode('latin1')
 
-# ------------------- API FUNCTIONS -------------------
-
-# ✅ 1. CLINVAR
+# ------------------- DATA FETCH FUNCTIONS -------------------
 def fetch_clinvar_data(gene: str):
     try:
-        url = "https://clinicaltrials.gov/api/v2"
         params = {"terms": gene, "maxList": 10}
-        r = requests.get(url, params=params, timeout=10)
+        r = requests.get(CLINVAR_API, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
         variants = data[3] if len(data) > 3 else []
@@ -31,135 +33,123 @@ def fetch_clinvar_data(gene: str):
     except Exception as e:
         return [{"error": f"ClinVar API failed: {e}"}]
 
-# ✅ 2. DGIdb (Drug–Gene Interactions)
 def fetch_drug_data(gene: str):
     try:
-        url = f"https://dgidb.org/api/v2/interactions.json?genes={gene}"
-        r = requests.get(url, timeout=10)
+        params = {"genes": gene}
+        r = requests.get(DGIDB_API, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
-
         interactions = data.get("matchedTerms", [])[0].get("interactions", [])
         if not interactions:
             return [{"error": "No drug interactions found in DGIdb."}]
-        
         return [
-            {
-                "Drug": d.get("drugName", "N/A"),
-                "Interaction Type": d.get("interactionTypes", ["N/A"])[0],
-                "Source": d.get("source", "N/A")
-            }
-            for d in interactions
+            {"Drug": i["drugName"], "Interaction Type": i["interactionTypes"][0]}
+            for i in interactions[:5]
         ]
     except Exception as e:
         return [{"error": f"DGIdb API failed: {e}"}]
 
-# ✅ 3. ClinicalTrials.gov API (New version)
 def fetch_trials(gene: str):
     try:
-        search_url = "https://clinicaltrials.gov/api/query/study_fields"
         params = {
             "expr": gene,
-            "fields": "NCTId,BriefTitle,Condition,LocationCountry",
+            "fields": "NCTId,BriefTitle,OverallStatus,LocationCountry",
             "min_rnk": 1,
-            "max_rnk": 10,
+            "max_rnk": 5,
             "fmt": "json"
         }
-        r = requests.get(search_url, params=params, timeout=10)
+        r = requests.get(TRIALS_API, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
-        trials = data.get("StudyFieldsResponse", {}).get("StudyFields", [])
-        if not trials:
+        studies = data.get("StudyFieldsResponse", {}).get("StudyFields", [])
+        if not studies:
             return [{"error": "No clinical trials found."}]
         return [
             {
-                "Trial ID": t.get("NCTId", ["N/A"])[0],
-                "Title": t.get("BriefTitle", ["N/A"])[0],
-                "Condition": ", ".join(t.get("Condition", ["N/A"])),
-                "Country": ", ".join(t.get("LocationCountry", ["N/A"]))
+                "Trial ID": s.get("NCTId", ["N/A"])[0],
+                "Title": s.get("BriefTitle", ["N/A"])[0],
+                "Status": s.get("OverallStatus", ["N/A"])[0],
+                "Country": ", ".join(s.get("LocationCountry", ["N/A"]))
             }
-            for t in trials
+            for s in studies
         ]
     except Exception as e:
-        return [{"error": f"ClinicalTrials.gov API failed: {e}"}]
+        return [{"error": f"ClinicalTrials API failed: {e}"}]
 
-# ------------------- GENE INPUT -------------------
+# ------------------- INPUT SECTION -------------------
 gene = st.text_input("🔍 Enter Gene Symbol (e.g., TP53, BRCA1)").strip().upper()
-muts, drugs, trials = [], [], []
+uploaded_file = st.file_uploader("📁 Or upload a file with gene names (.txt, .csv)", type=["txt", "csv"])
 
-if gene:
+gene_list = []
+if uploaded_file:
+    content = uploaded_file.read().decode("utf-8")
+    if uploaded_file.name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file)
+        gene_list = df.iloc[:, 0].dropna().astype(str).str.upper().tolist()
+    else:
+        gene_list = [line.strip().upper() for line in content.splitlines() if line.strip()]
+elif gene:
+    gene_list = [gene]
+
+# ------------------- DISPLAY RESULTS -------------------
+all_results = {}
+
+for gene in gene_list:
     st.info(f"Fetching data for **{gene}**...")
     muts = fetch_clinvar_data(gene)
     drugs = fetch_drug_data(gene)
     trials = fetch_trials(gene)
+    all_results[gene] = {"muts": muts, "drugs": drugs, "trials": trials}
 
-# ------------------- DISPLAY RESULTS -------------------
-if gene:
     if muts and "error" not in muts[0]:
-        st.subheader("🧬 Mutation Info (ClinVar)")
+        st.subheader(f"🧬 Mutation Info: {gene}")
         st.table(pd.DataFrame(muts))
     else:
         st.warning(muts[0].get("error", "No mutation data found."))
 
     if drugs and "error" not in drugs[0]:
-        st.subheader("💊 Drug Matches (DGIdb)")
+        st.subheader(f"💊 Drug Matches: {gene}")
         st.table(pd.DataFrame(drugs))
     else:
         st.warning(drugs[0].get("error", "No drug matches found."))
 
     if trials and "error" not in trials[0]:
-        st.subheader("🏥 Clinical Trials (ClinicalTrials.gov)")
+        st.subheader(f"🏥 Clinical Trials: {gene}")
         st.table(pd.DataFrame(trials))
     else:
         st.warning(trials[0].get("error", "No clinical trials found."))
 
-# ------------------- PDF REPORT -------------------
-def create_pdf_report(gene, muts, drugs, trials):
+# ------------------- PDF EXPORT -------------------
+def create_pdf_report(results):
     pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=14)
-    pdf.cell(200, 10, txt=safe_text(f"ClinOmics Report: {gene}"), ln=True, align='C')
-    pdf.ln(10)
+    for gene, data in results.items():
+        pdf.add_page()
+        pdf.set_font("Arial", size=14)
+        pdf.cell(200, 10, txt=safe_text(f"ClinOmics Report: {gene}"), ln=True, align='C')
+        pdf.ln(10)
 
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="Mutation Info (ClinVar)", ln=True)
-    pdf.set_font("Arial", '', 11)
-    for mut in muts:
-        for k, v in mut.items():
-            pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
-        pdf.ln(2)
-
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="Drug Matches (DGIdb)", ln=True)
-    pdf.set_font("Arial", '', 11)
-    for drug in drugs:
-        for k, v in drug.items():
-            pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
-        pdf.ln(2)
-
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="Clinical Trials", ln=True)
-    pdf.set_font("Arial", '', 11)
-    for trial in trials:
-        for k, v in trial.items():
-            pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
-        pdf.ln(2)
-
-    pdf.ln(10)
-    pdf.set_font("Arial", 'I', 10)
-    pdf.cell(200, 10, txt="Generated by ClinOmics AI Pro", ln=True, align='C')
+        for section, label in zip(["muts", "drugs", "trials"],
+                                  ["Mutation Info", "Drug Matches", "Clinical Trials"]):
+            pdf.set_font("Arial", 'B', 12)
+            pdf.cell(200, 10, txt=label, ln=True)
+            pdf.set_font("Arial", '', 11)
+            for item in data[section]:
+                for k, v in item.items():
+                    pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
+                pdf.ln(2)
+        pdf.ln(10)
     return pdf
 
-if gene and muts and "error" not in muts[0]:
-    if st.button("📅 Download PDF Report"):
-        pdf = create_pdf_report(gene, muts, drugs, trials)
+if gene_list:
+    if st.button("📥 Download PDF Report"):
+        pdf = create_pdf_report(all_results)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmpfile:
             pdf.output(tmpfile.name)
             with open(tmpfile.name, "rb") as f:
                 st.download_button(
                     label="⬇️ Download PDF Report",
                     data=f,
-                    file_name=f"{gene}_ClinOmics_Report.pdf",
+                    file_name=f"ClinOmics_Report.pdf",
                     mime="application/pdf"
                 )
             os.unlink(tmpfile.name)
@@ -168,6 +158,7 @@ if gene and muts and "error" not in muts[0]:
 st.markdown("""
 <hr style='border: 1px solid #ddd;'>
 <div style="text-align: center; color: gray;">
-    Created by <b>Sayeda Rehmat</b> — Founder, <i>ClinOmics AI Pro</i>
+    Created by <b>Syeda Rehmat</b> — Founder, <i>ClinOmics AI Pro</i><br>
+    Powered by ClinVar, DGIdb, ClinicalTrials.gov
 </div>
 """, unsafe_allow_html=True)
