@@ -12,14 +12,14 @@ st.markdown("**AI-powered mutation analysis, drug discovery, and clinical trial 
 
 # ------------------- API ENDPOINTS -------------------
 CLINVAR_API = "https://clinicaltables.nlm.nih.gov/api/variants/v3/search"
-RXNORM_API = "https://rxnav.nlm.nih.gov/REST"
-TRIALS_API = "https://clinicaltrials.gov/api/query/full_studies"
+DGIDB_API = "https://dgidb.org/api/v2/interactions.json"
+TRIALS_API = "https://clinicaltrials.gov/api/query/study_fields"
 
 # ------------------- UTILITIES -------------------
 def safe_text(text):
     return str(text).encode('latin1', 'ignore').decode('latin1')
 
-# ------------------- API CALLS -------------------
+# ------------------- DATA FETCH FUNCTIONS -------------------
 def fetch_clinvar_data(gene: str):
     try:
         params = {"terms": gene, "maxList": 10}
@@ -35,29 +35,25 @@ def fetch_clinvar_data(gene: str):
 
 def fetch_drug_data(gene: str):
     try:
-        url = f"{RXNORM_API}/approximateTerm.json"
-        params = {"term": gene}
-        r = requests.get(url, params=params, timeout=10)
+        params = {"genes": gene}
+        r = requests.get(DGIDB_API, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
-        candidates = data.get("approximateGroup", {}).get("candidate", [])
-        if not candidates:
-            return [{"error": "No drug matches found in RxNorm."}]
-        matches = []
-        for c in candidates[:5]:
-            matches.append({
-                "RXCUI": c["rxcui"],
-                "Name Match": c["name"],
-                "Score": c["score"]
-            })
-        return matches
+        interactions = data.get("matchedTerms", [])[0].get("interactions", [])
+        if not interactions:
+            return [{"error": "No drug interactions found in DGIdb."}]
+        return [
+            {"Drug": i["drugName"], "Interaction Type": i["interactionTypes"][0]}
+            for i in interactions[:5]
+        ]
     except Exception as e:
-        return [{"error": f"RxNorm API failed: {e}"}]
+        return [{"error": f"DGIdb API failed: {e}"}]
 
 def fetch_trials(gene: str):
     try:
         params = {
             "expr": gene,
+            "fields": "NCTId,BriefTitle,OverallStatus,LocationCountry",
             "min_rnk": 1,
             "max_rnk": 5,
             "fmt": "json"
@@ -65,21 +61,18 @@ def fetch_trials(gene: str):
         r = requests.get(TRIALS_API, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
-        studies = data.get("FullStudiesResponse", {}).get("FullStudies", [])
+        studies = data.get("StudyFieldsResponse", {}).get("StudyFields", [])
         if not studies:
             return [{"error": "No clinical trials found."}]
-        results = []
-        for s in studies:
-            id_module = s['Study']['ProtocolSection']['IdentificationModule']
-            status = s['Study']['ProtocolSection']['StatusModule']
-            loc = s['Study']['ProtocolSection'].get("ContactsLocationsModule", {})
-            results.append({
-                "Trial ID": id_module.get("NCTId", "N/A"),
-                "Title": id_module.get("OfficialTitle", "N/A"),
-                "Status": status.get("OverallStatus", "N/A"),
-                "Country": loc.get("LocationList", [{}])[0].get("LocationCountry", "N/A")
-            })
-        return results
+        return [
+            {
+                "Trial ID": s.get("NCTId", ["N/A"])[0],
+                "Title": s.get("BriefTitle", ["N/A"])[0],
+                "Status": s.get("OverallStatus", ["N/A"])[0],
+                "Country": ", ".join(s.get("LocationCountry", ["N/A"]))
+            }
+            for s in studies
+        ]
     except Exception as e:
         return [{"error": f"ClinicalTrials API failed: {e}"}]
 
@@ -98,7 +91,7 @@ if uploaded_file:
 elif gene:
     gene_list = [gene]
 
-# ------------------- RESULTS -------------------
+# ------------------- DISPLAY RESULTS -------------------
 all_results = {}
 
 for gene in gene_list:
@@ -144,7 +137,6 @@ def create_pdf_report(results):
                 for k, v in item.items():
                     pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
                 pdf.ln(2)
-
         pdf.ln(10)
     return pdf
 
@@ -167,6 +159,6 @@ st.markdown("""
 <hr style='border: 1px solid #ddd;'>
 <div style="text-align: center; color: gray;">
     Created by <b>Syeda Rehmat</b> — Founder, <i>ClinOmics AI Pro</i><br>
-    Powered by Open APIs: ClinVar, RxNorm, ClinicalTrials.gov
+    Powered by ClinVar, DGIdb, ClinicalTrials.gov
 </div>
 """, unsafe_allow_html=True)
