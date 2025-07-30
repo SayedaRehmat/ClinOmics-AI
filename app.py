@@ -10,20 +10,18 @@ st.set_page_config(page_title="ClinOmics AI Pro", layout="centered")
 st.title("🧬 ClinOmics AI Pro: Gene, Drug & Clinical Trial Insights")
 st.markdown("**AI-powered mutation analysis, drug discovery, and clinical trial insights with trusted, open data sources.**")
 
-# ------------------- API ENDPOINTS -------------------
-CLINVAR_API = "https://clinicaltables.nlm.nih.gov/api/variants/v3/search"
-RXNORM_API = "https://rxnav.nlm.nih.gov"
-TRIALS_API = "https://clinicaltrials.gov/data-api/api"
-
 # ------------------- UTILITIES -------------------
 def safe_text(text):
     return str(text).encode('latin1', 'ignore').decode('latin1')
 
-# ------------------- DATA FETCH FUNCTIONS -------------------
+# ------------------- API FUNCTIONS -------------------
+
+# ✅ 1. CLINVAR
 def fetch_clinvar_data(gene: str):
     try:
+        url = "https://clinicaltables.nlm.nih.gov/api/variants/v3/search"
         params = {"terms": gene, "maxList": 10}
-        r = requests.get(CLINVAR_API, params=params, timeout=10)
+        r = requests.get(url, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
         variants = data[3] if len(data) > 3 else []
@@ -33,26 +31,41 @@ def fetch_clinvar_data(gene: str):
     except Exception as e:
         return [{"error": f"ClinVar API failed: {e}"}]
 
+# ✅ 2. DGIdb (Drug–Gene Interactions)
 def fetch_drug_data(gene: str):
     try:
-        params = {"rxcui": gene}
-        r = requests.get(RXNORM_API, params=params, timeout=10)
-        if r.status_code != 200:
-            return [{"error": "No drug data found."}]
-        return [{"Drug": "SampleDrug", "Interaction": "Example interaction from RxNorm"}]
-    except Exception as e:
-        return [{"error": f"RxNorm API failed: {e}"}]
+        url = f"https://dgidb.org/api/v2/interactions.json?genes={gene}"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
 
+        interactions = data.get("matchedTerms", [])[0].get("interactions", [])
+        if not interactions:
+            return [{"error": "No drug interactions found in DGIdb."}]
+        
+        return [
+            {
+                "Drug": d.get("drugName", "N/A"),
+                "Interaction Type": d.get("interactionTypes", ["N/A"])[0],
+                "Source": d.get("source", "N/A")
+            }
+            for d in interactions
+        ]
+    except Exception as e:
+        return [{"error": f"DGIdb API failed: {e}"}]
+
+# ✅ 3. ClinicalTrials.gov API (New version)
 def fetch_trials(gene: str):
     try:
+        search_url = "https://clinicaltrials.gov/api/query/study_fields"
         params = {
             "expr": gene,
             "fields": "NCTId,BriefTitle,Condition,LocationCountry",
             "min_rnk": 1,
             "max_rnk": 10,
-            "fmt": "JSON"
+            "fmt": "json"
         }
-        r = requests.get(TRIALS_API, params=params, timeout=10)
+        r = requests.get(search_url, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
         trials = data.get("StudyFieldsResponse", {}).get("StudyFields", [])
@@ -62,16 +75,16 @@ def fetch_trials(gene: str):
             {
                 "Trial ID": t.get("NCTId", ["N/A"])[0],
                 "Title": t.get("BriefTitle", ["N/A"])[0],
+                "Condition": ", ".join(t.get("Condition", ["N/A"])),
                 "Country": ", ".join(t.get("LocationCountry", ["N/A"]))
             }
             for t in trials
         ]
     except Exception as e:
-        return [{"error": f"ClinicalTrials API failed: {e}"}]
+        return [{"error": f"ClinicalTrials.gov API failed: {e}"}]
 
 # ------------------- GENE INPUT -------------------
 gene = st.text_input("🔍 Enter Gene Symbol (e.g., TP53, BRCA1)").strip().upper()
-
 muts, drugs, trials = [], [], []
 
 if gene:
@@ -89,7 +102,7 @@ if gene:
         st.warning(muts[0].get("error", "No mutation data found."))
 
     if drugs and "error" not in drugs[0]:
-        st.subheader("💊 Drug Matches (RxNorm/NLM)")
+        st.subheader("💊 Drug Matches (DGIdb)")
         st.table(pd.DataFrame(drugs))
     else:
         st.warning(drugs[0].get("error", "No drug matches found."))
@@ -117,7 +130,7 @@ def create_pdf_report(gene, muts, drugs, trials):
         pdf.ln(2)
 
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="Drug Matches (RxNorm/NLM)", ln=True)
+    pdf.cell(200, 10, txt="Drug Matches (DGIdb)", ln=True)
     pdf.set_font("Arial", '', 11)
     for drug in drugs:
         for k, v in drug.items():
@@ -155,6 +168,6 @@ if gene and muts and "error" not in muts[0]:
 st.markdown("""
 <hr style='border: 1px solid #ddd;'>
 <div style="text-align: center; color: gray;">
-    Created by <b>Syeda Rehmat</b> — Founder, <i>ClinOmics AI Pro</i>
+    Created by <b>Sayeda Rehmat</b> — Founder, <i>ClinOmics AI Pro</i>
 </div>
 """, unsafe_allow_html=True)
