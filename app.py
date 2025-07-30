@@ -7,7 +7,7 @@ from fpdf import FPDF
 import tempfile
 import os
 
-BASE_API = "http://localhost:10000"
+BASE_API = "https://clinomics-api.onrender.com"
 
 st.set_page_config(page_title="ClinOmics AI Pro", layout="centered")
 st.title("🧬 ClinOmics AI Pro")
