@@ -12,7 +12,7 @@ st.markdown("**AI-powered mutation analysis, drug discovery, and clinical trial 
 
 # ------------------- API ENDPOINTS -------------------
 CLINVAR_API = "https://clinicaltables.nlm.nih.gov/api/variants/v3/search"
-RXNORM_API = " https://lhncbc.nlm.nih.gov/RxNav/APIs/RxNormAPIs.html"
+RXNORM_API = " https://rxnav.nlm.nih.gov"
 TRIALS_API = " https://clinicaltrials.gov/data-api/api"
 
 # ------------------- UTILITIES -------------------
