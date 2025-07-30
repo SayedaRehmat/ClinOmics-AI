@@ -12,16 +12,15 @@ st.markdown("**AI-powered mutation analysis, drug discovery, and clinical trial 
 
 # ------------------- API ENDPOINTS -------------------
 CLINVAR_API = "https://clinicaltables.nlm.nih.gov/api/variants/v3/search"
-RXNORM_API = " https://rxnav.nlm.nih.gov"
-TRIALS_API = " https://clinicaltrials.gov/data-api/api"
+RXNORM_API = "https://rxnav.nlm.nih.gov/REST"
+TRIALS_API = "https://clinicaltrials.gov/api/query/full_studies"
 
 # ------------------- UTILITIES -------------------
 def safe_text(text):
     return str(text).encode('latin1', 'ignore').decode('latin1')
 
-# ------------------- DATA FETCH FUNCTIONS -------------------
+# ------------------- API CALLS -------------------
 def fetch_clinvar_data(gene: str):
-    """Fetch ClinVar mutation data."""
     try:
         params = {"terms": gene, "maxList": 10}
         r = requests.get(CLINVAR_API, params=params, timeout=10)
@@ -35,126 +34,130 @@ def fetch_clinvar_data(gene: str):
         return [{"error": f"ClinVar API failed: {e}"}]
 
 def fetch_drug_data(gene: str):
-    """
-    Fetch drug data using RxNorm API (NLM DDI).
-    NOTE: This is a placeholder using RxNorm interactions (requires drug terms).
-    """
     try:
-        # Example: using gene name as drug term for demonstration
-        params = {"rxcui": gene}
-        r = requests.get(RXNORM_API, params=params, timeout=10)
-        if r.status_code != 200:
-            return [{"error": "No drug data found."}]
-        # RxNorm API requires drug identifiers; here we simulate:
-        return [{"Drug": "SampleDrug", "Interaction": "Example interaction from RxNorm"}]
+        url = f"{RXNORM_API}/approximateTerm.json"
+        params = {"term": gene}
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        candidates = data.get("approximateGroup", {}).get("candidate", [])
+        if not candidates:
+            return [{"error": "No drug matches found in RxNorm."}]
+        matches = []
+        for c in candidates[:5]:
+            matches.append({
+                "RXCUI": c["rxcui"],
+                "Name Match": c["name"],
+                "Score": c["score"]
+            })
+        return matches
     except Exception as e:
         return [{"error": f"RxNorm API failed: {e}"}]
 
 def fetch_trials(gene: str):
-    """Fetch clinical trials from ClinicalTrials.gov."""
     try:
         params = {
             "expr": gene,
-            "fields": "NCTId,BriefTitle,Condition,LocationCountry",
             "min_rnk": 1,
-            "max_rnk": 10,
-            "fmt": "JSON"
+            "max_rnk": 5,
+            "fmt": "json"
         }
         r = requests.get(TRIALS_API, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
-        trials = data.get("StudyFieldsResponse", {}).get("StudyFields", [])
-        if not trials:
+        studies = data.get("FullStudiesResponse", {}).get("FullStudies", [])
+        if not studies:
             return [{"error": "No clinical trials found."}]
-        return [
-            {
-                "Trial ID": t.get("NCTId", ["N/A"])[0],
-                "Title": t.get("BriefTitle", ["N/A"])[0],
-                "Country": ", ".join(t.get("LocationCountry", ["N/A"]))
-            }
-            for t in trials
-        ]
+        results = []
+        for s in studies:
+            id_module = s['Study']['ProtocolSection']['IdentificationModule']
+            status = s['Study']['ProtocolSection']['StatusModule']
+            loc = s['Study']['ProtocolSection'].get("ContactsLocationsModule", {})
+            results.append({
+                "Trial ID": id_module.get("NCTId", "N/A"),
+                "Title": id_module.get("OfficialTitle", "N/A"),
+                "Status": status.get("OverallStatus", "N/A"),
+                "Country": loc.get("LocationList", [{}])[0].get("LocationCountry", "N/A")
+            })
+        return results
     except Exception as e:
         return [{"error": f"ClinicalTrials API failed: {e}"}]
 
-# ------------------- GENE INPUT -------------------
+# ------------------- INPUT SECTION -------------------
 gene = st.text_input("🔍 Enter Gene Symbol (e.g., TP53, BRCA1)").strip().upper()
+uploaded_file = st.file_uploader("📁 Or upload a file with gene names (.txt, .csv)", type=["txt", "csv"])
 
-muts, drugs, trials = [], [], []
+gene_list = []
+if uploaded_file:
+    content = uploaded_file.read().decode("utf-8")
+    if uploaded_file.name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file)
+        gene_list = df.iloc[:, 0].dropna().astype(str).str.upper().tolist()
+    else:
+        gene_list = [line.strip().upper() for line in content.splitlines() if line.strip()]
+elif gene:
+    gene_list = [gene]
 
-if gene:
+# ------------------- RESULTS -------------------
+all_results = {}
+
+for gene in gene_list:
     st.info(f"Fetching data for **{gene}**...")
     muts = fetch_clinvar_data(gene)
     drugs = fetch_drug_data(gene)
     trials = fetch_trials(gene)
+    all_results[gene] = {"muts": muts, "drugs": drugs, "trials": trials}
 
-# ------------------- DISPLAY RESULTS -------------------
-if gene:
     if muts and "error" not in muts[0]:
-        st.subheader("🧬 Mutation Info (ClinVar)")
+        st.subheader(f"🧬 Mutation Info: {gene}")
         st.table(pd.DataFrame(muts))
     else:
         st.warning(muts[0].get("error", "No mutation data found."))
 
     if drugs and "error" not in drugs[0]:
-        st.subheader("💊 Drug Matches (RxNorm/NLM)")
+        st.subheader(f"💊 Drug Matches: {gene}")
         st.table(pd.DataFrame(drugs))
     else:
         st.warning(drugs[0].get("error", "No drug matches found."))
 
     if trials and "error" not in trials[0]:
-        st.subheader("🏥 Clinical Trials (ClinicalTrials.gov)")
+        st.subheader(f"🏥 Clinical Trials: {gene}")
         st.table(pd.DataFrame(trials))
     else:
         st.warning(trials[0].get("error", "No clinical trials found."))
 
-# ------------------- PDF REPORT -------------------
-def create_pdf_report(gene, muts, drugs, trials):
+# ------------------- PDF EXPORT -------------------
+def create_pdf_report(results):
     pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=14)
-    pdf.cell(200, 10, txt=safe_text(f"ClinOmics Report: {gene}"), ln=True, align='C')
-    pdf.ln(10)
+    for gene, data in results.items():
+        pdf.add_page()
+        pdf.set_font("Arial", size=14)
+        pdf.cell(200, 10, txt=safe_text(f"ClinOmics Report: {gene}"), ln=True, align='C')
+        pdf.ln(10)
 
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="Mutation Info (ClinVar)", ln=True)
-    pdf.set_font("Arial", '', 11)
-    for mut in muts:
-        for k, v in mut.items():
-            pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
-        pdf.ln(2)
+        for section, label in zip(["muts", "drugs", "trials"],
+                                  ["Mutation Info", "Drug Matches", "Clinical Trials"]):
+            pdf.set_font("Arial", 'B', 12)
+            pdf.cell(200, 10, txt=label, ln=True)
+            pdf.set_font("Arial", '', 11)
+            for item in data[section]:
+                for k, v in item.items():
+                    pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
+                pdf.ln(2)
 
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="Drug Matches (RxNorm/NLM)", ln=True)
-    pdf.set_font("Arial", '', 11)
-    for drug in drugs:
-        for k, v in drug.items():
-            pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
-        pdf.ln(2)
-
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt="Clinical Trials", ln=True)
-    pdf.set_font("Arial", '', 11)
-    for trial in trials:
-        for k, v in trial.items():
-            pdf.cell(0, 8, txt=safe_text(f"{k}: {v}"), ln=True)
-        pdf.ln(2)
-
-    pdf.ln(10)
-    pdf.set_font("Arial", 'I', 10)
-    pdf.cell(200, 10, txt="Generated by ClinOmics AI Pro", ln=True, align='C')
+        pdf.ln(10)
     return pdf
 
-if gene and muts and "error" not in muts[0]:
+if gene_list:
     if st.button("📥 Download PDF Report"):
-        pdf = create_pdf_report(gene, muts, drugs, trials)
+        pdf = create_pdf_report(all_results)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmpfile:
             pdf.output(tmpfile.name)
             with open(tmpfile.name, "rb") as f:
                 st.download_button(
                     label="⬇️ Download PDF Report",
                     data=f,
-                    file_name=f"{gene}_ClinOmics_Report.pdf",
+                    file_name=f"ClinOmics_Report.pdf",
                     mime="application/pdf"
                 )
             os.unlink(tmpfile.name)
@@ -163,6 +166,7 @@ if gene and muts and "error" not in muts[0]:
 st.markdown("""
 <hr style='border: 1px solid #ddd;'>
 <div style="text-align: center; color: gray;">
-    Created by <b>Syeda Rehmat</b> — Founder, <i>ClinOmics AI Pro</i>
+    Created by <b>Syeda Rehmat</b> — Founder, <i>ClinOmics AI Pro</i><br>
+    Powered by Open APIs: ClinVar, RxNorm, ClinicalTrials.gov
 </div>
 """, unsafe_allow_html=True)
